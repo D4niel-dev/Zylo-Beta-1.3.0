@@ -840,8 +840,7 @@ def serve_main():
 
 @app.route('/images/<path:filename>')
 def serve_images(filename):
-    # Images were relocated under the frontend folder
-    return send_from_directory(os.path.join(FRONTEND_DIR, 'images'), filename)
+    return send_from_directory(os.path.join(FRONTEND_DIR, 'images'), filename) # Images were relocated under the frontend folder
 
 @app.route('/uploads/<username>/<filename>')
 def serve_upload(username, filename):
@@ -849,8 +848,11 @@ def serve_upload(username, filename):
 
 @app.route('/files/<path:filename>')
 def serve_files(filename):
-    # Static files (css, vendor, audio, etc.) now live under frontend/files
-    return send_from_directory(os.path.join(FRONTEND_DIR, 'files'), filename)
+    return send_from_directory(os.path.join(FRONTEND_DIR, 'files'), filename)  # Static files (css, vendor, audio, etc.) now live under frontend/files
+
+@app.route('/js/<path:filename>')
+def serve_js(filename):
+    return send_from_directory(os.path.join(FRONTEND_DIR, 'js'), filename)
 
 @app.route('/api/update-profile', methods=['POST'])
 def update_profile():
@@ -859,13 +861,16 @@ def update_profile():
     usertag = data.get("usertag")
     avatar_data = data.get("avatar")
     banner_data = data.get("banner")
-    about = data.get("about")
+    about_short = data.get("about") or data.get("bio") or None
+    about_long = data.get("aboutMe") or data.get("about_long") or data.get("description") or None
     level = data.get("level")
     gold = data.get("gold")
     rank = data.get("rank")
+    settings = data.get("settings")
 
     print(f"Incoming update for user: {username}")
     print("Raw data:", data)
+    print("Parsed about_short:", about_short, "about_long:", about_long)
 
     if not username:
         return jsonify({"success": False, "error": "Missing username"}), 400
@@ -882,8 +887,7 @@ def update_profile():
     def save_image(base64_data, filename):
         if not base64_data:
             return None
-        # If the value is already a URL/path, just keep it (no-op update)
-        if isinstance(base64_data, str) and (
+        if isinstance(base64_data, str) and (   # If the value is already a URL/path, just keep it (no-op update)
             base64_data.startswith('/uploads/') or
             base64_data.startswith('/images/') or
             base64_data.startswith('http://') or
@@ -910,24 +914,47 @@ def update_profile():
     updated = False
     for user in users:
         if user.get("username") == username:
-            if avatar_url: 
+
+            # Avatar / banner
+            if avatar_url:
                 user["avatar"] = avatar_url
-                
-            if banner_url: 
+            if banner_url:
                 user["banner"] = banner_url
-                
+
+            # Usertag
             if usertag is not None:
                 raw_tag = str(usertag).strip()
                 if raw_tag:
                     user["usertag"] = "@" + raw_tag.lstrip("@")
-                
-            user["aboutMe"] = about
-            user["level"] = level
-            user["gold"] = gold
-            user["rank"] = rank
+
+            # Only update if the key exists in the payload
+            if "about" in data or "bio" in data:
+                user["about"] = str(data.get("about") or data.get("bio") or "").strip()
+                print(f"Updated short bio for {username}: '{user['about']}'")
+
+            if "aboutMe" in data or "about_long" in data or "description" in data:
+                user["aboutMe"] = str(data.get("aboutMe") or data.get("about_long") or data.get("description") or "").strip()
+                print(f"Updated aboutMe for {username}: '{user['aboutMe']}'")
+
+            # Optional fields
+            if level is not None:
+                user["level"] = level
+            if gold is not None:
+                user["gold"] = gold
+            if rank is not None:
+                user["rank"] = rank
+
+            # Update settings
+            if settings is not None:
+                if "settings" not in user:
+                    user["settings"] = {}
+                user["settings"].update(settings)
+                print(f"✅ Updated settings: {settings}")
+
             updated = True
             print(f"✅ Updated {username}'s profile.")
             break
+
 
     if not updated:
         return jsonify({"success": False, "error": "User not found"}), 404
@@ -936,7 +963,6 @@ def update_profile():
         json.dump(users, f, indent=2)
 
     return jsonify({"success": True, "user": user})
-
 
 # -------- Settings and Account Management Endpoints -------- #
 
@@ -1381,7 +1407,7 @@ def _gen_group_id() -> str:
     return f"g{random.randint(100000, 999999)}"
 
 
-@app.route('/api/groups', methods=['GET'])
+@app.route('/api/groups/list', methods=['GET'])
 def list_groups():
     username = (request.args.get('username') or '').strip()
     all_groups = load_groups()
@@ -1394,23 +1420,21 @@ def list_groups():
 @app.route('/api/groups/create', methods=['POST'])
 def create_group():
     data = request.json or {}
-    owner = (data.get('owner') or '').strip()
+    username = (data.get('username') or data.get('owner') or '').strip()
     name = (data.get('name') or '').strip()
     description = (data.get('description') or '').strip()
-    if not owner or not name:
-        return jsonify({"success": False, "error": "Missing owner/name"}), 400
-    users = load_users()
-    _, u = _find_user(users, owner)
-    if u is None:
-        return jsonify({"success": False, "error": "Owner not found"}), 404
+    if not username or not name:
+        return jsonify({"success": False, "error": "Missing username/name"}), 400
     gid = _gen_group_id()
     g = {
         "id": gid,
         "name": name,
         "description": description,
-        "owner": owner,
-        "members": [owner],
-        "messages": []
+        "owner": username,
+        "members": [username],
+        "channels": [{"id": "general", "name": "general"}],
+        "messages": [],
+        "createdAt": int(__import__('time').time())
     }
     all_groups = load_groups()
     all_groups.append(g)
@@ -1454,13 +1478,51 @@ def leave_group_api():
     return jsonify({"success": False, "error": "Group not found"}), 404
 
 
+@app.route('/api/groups/message', methods=['POST'])
+def send_group_message_api():
+    """Send a message to a group channel."""
+    data = request.json or {}
+    group_id = data.get('groupId', '').strip()
+    channel = data.get('channel', 'general').strip()
+    username = data.get('username', '').strip()
+    message = data.get('message', '').strip()
+    
+    if not group_id or not username or not message:
+        return jsonify({"success": False, "error": "Missing required fields"}), 400
+    
+    all_groups = load_groups()
+    
+    for idx, group in enumerate(all_groups):
+        if group.get('id') == group_id:
+            msg_entry = {
+                'username': username,
+                'message': message,
+                'channel': channel,
+                'timestamp': int(__import__('time').time())
+            }
+            messages = group.get('messages', [])
+            messages.append(msg_entry)
+            all_groups[idx]['messages'] = messages
+            save_groups(all_groups)
+            return jsonify({"success": True, "message": msg_entry})
+    
+    return jsonify({"success": False, "error": "Group not found"}), 404
+
+
 @app.route('/api/groups/<group_id>/messages', methods=['GET'])
 def group_messages_get(group_id):
+    channel = request.args.get('channel', 'general').strip()
     all_groups = load_groups()
     for g in all_groups:
         if g.get('id') == group_id:
-            return jsonify(g.get('messages') or [])
-    return jsonify([])
+            all_messages = g.get('messages', [])
+            # Filter by channel if specified
+            channel_messages = [
+                msg for msg in all_messages 
+                if msg.get('channel', 'general') == channel
+            ]
+            return jsonify({"success": True, "messages": channel_messages})
+    return jsonify({"success": True, "messages": []})
 
 @app.route('/<path:path>')
 def serve_static_file(path):
@@ -1473,4 +1535,4 @@ def serve_static_file(path):
 
 # Run the app (IMPORTANT: Use socketio.run to enable Socket.IO support)
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)

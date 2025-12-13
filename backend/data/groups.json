@@ -1,1 +1,21 @@
-[]
+[
+  {
+    "id": "g235948",
+    "name": "Zylo Support Official",
+    "description": "",
+    "owner": "Dan",
+    "members": [
+      "Dan"
+    ],
+    "messages": [
+      {
+        "username": "Dan",
+        "message": "yoooo"
+      },
+      {
+        "username": "Dan",
+        "message": "the official server for zylo support!!"
+      }
+    ]
+  }
+]
