@@ -5545,51 +5545,81 @@
       const container = document.getElementById('groupChatMessages');
       if (!container) return;
 
-      const msgDiv = document.createElement('div');
-      msgDiv.className = 'flex gap-3 hover:bg-black/10 p-1 rounded -ml-1'; // Added hover effect and padding
+      const username = data.username || data.from || 'Unknown';
+      const timestamp = data.timestamp || data.ts || (Date.now() / 1000);
+      const message = data.message || '';
+      const fileData = data.fileData;
+      const fileName = data.fileName;
 
-      // Fetch Avatar
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'flex gap-3 hover:bg-black/10 p-1 rounded -ml-1';
+
+      // Avatar
       let avatarUrl = '/images/default_avatar.png';
-      if (data.username) {
-        try {
-          // Try to use existing helper if available, otherwise fallback to fetch
-          if (typeof getUserAvatarUrl === 'function') {
-            avatarUrl = await getUserAvatarUrl(data.username);
-          } else {
-            const res = await fetch(`/api/get-user?identifier=${encodeURIComponent(data.username)}`);
-            const d = await res.json();
-            if (d.success && d.user && d.user.avatar) avatarUrl = d.user.avatar;
-          }
-        } catch (e) { }
-      }
+      try {
+        if (typeof getUserAvatarUrl === 'function') {
+          avatarUrl = await getUserAvatarUrl(username);
+        } else {
+          const res = await fetch(`/api/get-user?identifier=${encodeURIComponent(username)}`);
+          const d = await res.json();
+          if (d.success && d.user && d.user.avatar) avatarUrl = d.user.avatar;
+        }
+      } catch (e) { }
 
       const avatar = document.createElement('img');
-      avatar.className = 'w-10 h-10 rounded-full bg-discord-blurple flex-shrink-0 object-cover';
+      avatar.className = 'w-10 h-10 rounded-full bg-discord-blurple flex-shrink-0 object-cover cursor-pointer';
       avatar.src = avatarUrl;
-      avatar.alt = data.username;
+      avatar.onclick = () => { if (typeof showUserProfile === 'function') showUserProfile(username); };
       avatar.onerror = function () { this.src = '/images/default_avatar.png'; };
 
       const content = document.createElement('div');
-      content.className = 'flex-1 min-w-0'; // min-w-0 for text wrapping
+      content.className = 'flex-1 min-w-0';
 
       const header = document.createElement('div');
       header.className = 'flex items-baseline gap-2';
-
-      // Format timestamp
-      const ts = data.timestamp ? new Date(data.timestamp * 1000) : new Date();
+      const ts = new Date(timestamp * 1000);
       const timeStr = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
       header.innerHTML = `
-        <span class="font-semibold text-white hover:underline cursor-pointer">${data.username || 'Unknown'}</span>
+        <span class="font-semibold text-white hover:underline cursor-pointer" onclick="showUserProfile('${username}')">${username}</span>
         <span class="text-xs text-discord-gray-400">${timeStr}</span>
       `;
 
-      const message = document.createElement('div');
-      message.className = 'text-discord-gray-300 text-sm whitespace-pre-wrap break-words';
-      message.textContent = data.message || '';
-
       content.appendChild(header);
-      content.appendChild(message);
+
+      if (message) {
+        const msgText = document.createElement('div');
+        msgText.className = 'text-discord-gray-300 text-sm whitespace-pre-wrap break-words';
+        msgText.textContent = message;
+        content.appendChild(msgText);
+      }
+
+      if (fileData && fileName) {
+        const ext = fileName.split('.').pop().toLowerCase();
+        const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+        const videoExts = ['mp4', 'webm', 'ogg'];
+
+        if (imageExts.includes(ext)) {
+          const img = document.createElement('img');
+          img.src = fileData;
+          img.className = 'max-w-xs rounded shadow-md mt-1 cursor-pointer hover:opacity-90 transition';
+          img.onclick = () => window.open(fileData, '_blank');
+          content.appendChild(img);
+        } else if (videoExts.includes(ext)) {
+          const video = document.createElement('video');
+          video.src = fileData;
+          video.className = 'max-w-xs rounded mt-1';
+          video.controls = true;
+          content.appendChild(video);
+        } else {
+          const link = document.createElement('a');
+          link.href = fileData;
+          link.download = fileName;
+          link.textContent = `📎 ${fileName}`;
+          link.className = 'text-blue-400 hover:underline mt-1 block text-sm';
+          content.appendChild(link);
+        }
+      }
+
       msgDiv.appendChild(avatar);
       msgDiv.appendChild(content);
       container.appendChild(msgDiv);
