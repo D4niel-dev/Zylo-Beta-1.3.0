@@ -170,7 +170,7 @@ This applies to the **second sidebar column**
     - Matches UX patterns seen in Discord-like applications
 
 - Profile Frames
-> *Add pre-made profile franes*
+- *Add pre-made profile franes*
 
 ---
 
