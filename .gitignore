@@ -3,6 +3,8 @@ backend/uploads/
 backend/data/
 backend/__pycache__/
 scripts/future_plans/
+.agent/
+.shared/
 .env
 dist/
 *.json
